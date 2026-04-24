@@ -1,0 +1,33 @@
+---
+description: Project structure + key entry points for zombie-recoil
+globs:
+  - src/**/*.js
+  - vite.config.js
+alwaysApply: true
+---
+
+# Project structure (zombie-recoil)
+
+## High-level layout
+- `index.html` boots the app and imports `src/main.js`.
+- `src/main.js` contains **both**:
+  - **Game mode** (`runGame()`) for `/`
+  - **Editor mode** (`runEditor()`) for `/edit` (and `#/edit`)
+- `src/assetLoader.js` contains the `AssetLoader` used by both modes.
+- `public/maps/level.json` is the default level file.
+- `vite.config.js` implements `POST /api/save-map` to write `public/maps/level.json`.
+
+## Level data conventions (current)
+- A level is an **array** of placements.
+- Each placement is expected to look like:
+  - `{ type, position: {x,y,z}, rotation: {y}, scale? }`
+- Prefab `type` is normalized into one of:
+  - `House | Silo | Frame | Barricade`
+- Placements are **ground-locked**: game/editor treat `position.y` as ground + prefab y-offset.
+
+## When changing behavior
+- If you change map format, update:
+  - `loadLevelPlacements()` usage in both editor and game
+  - `POST /api/save-map` validation in `vite.config.js`
+- Keep iGPU-friendly rendering (prefer instancing; avoid heavy per-frame allocations).
+

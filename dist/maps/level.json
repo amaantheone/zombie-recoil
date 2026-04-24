@@ -1,0 +1,112 @@
+[
+  {
+    "type": "house",
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": -5
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": -15
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": -10
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 0,
+      "y": 0,
+      "z": 5
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 5,
+      "y": 0,
+      "z": 0
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 5,
+      "y": 0,
+      "z": 5
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 5,
+      "y": 0,
+      "z": -5
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 5,
+      "y": 0,
+      "z": -10
+    },
+    "rotation": {
+      "y": 0
+    }
+  },
+  {
+    "type": "house",
+    "position": {
+      "x": 5,
+      "y": 0,
+      "z": -15
+    },
+    "rotation": {
+      "y": 0
+    }
+  }
+]
