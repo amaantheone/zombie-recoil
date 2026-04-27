@@ -21,6 +21,158 @@ document.body.appendChild(renderer.domElement);
 const BASE_URL = import.meta.env.BASE_URL;
 
 // ------------------------------------------------------------
+// Vibe Jam 2026 Portal integration
+// ------------------------------------------------------------
+
+const VIBEJAM_PORTAL_URL = "https://vibejam.cc/portal/2026";
+
+function safeDecodeURIComponent(v) {
+  try {
+    return decodeURIComponent(String(v ?? ""));
+  } catch {
+    return String(v ?? "");
+  }
+}
+
+function parseIncomingPortalParams() {
+  const sp = new URLSearchParams(window.location.search || "");
+  const portal = sp.get("portal") === "true";
+  const ref = sp.get("ref");
+  return {
+    portal,
+    ref: ref ? safeDecodeURIComponent(ref) : null,
+    params: sp,
+  };
+}
+
+function makePortalUrl(base, paramsObj) {
+  const url = new URL(base, window.location.origin);
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(paramsObj)) {
+    if (v == null) continue;
+    const s = String(v);
+    if (!s) continue;
+    sp.set(k, s);
+  }
+  url.search = sp.toString();
+  return url.toString();
+}
+
+function parseHexOrNamedColor(value, fallback = 0x34d399) {
+  const s = String(value ?? "").trim().toLowerCase();
+  if (!s) return fallback;
+  if (s === "red") return 0xef4444;
+  if (s === "green") return 0x22c55e;
+  if (s === "yellow") return 0xf59e0b;
+  if (s === "blue") return 0x3b82f6;
+  if (s === "purple") return 0xa855f7;
+  if (s === "pink") return 0xec4899;
+  // Accept "ff00aa" or "#ff00aa"
+  const hex = s.startsWith("#") ? s.slice(1) : s;
+  if (/^[0-9a-f]{6}$/i.test(hex)) return Number.parseInt(hex, 16);
+  return fallback;
+}
+
+function createPortalLabelTexture(text) {
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  // Render crisp text (powers of 2-ish).
+  canvas.width = 1024;
+  canvas.height = 256;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // background pill
+  const padX = 64;
+  const padY = 42;
+  const r = 48;
+  const w = canvas.width - padX * 2;
+  const h = canvas.height - padY * 2;
+  const x = padX;
+  const y = padY;
+  ctx.fillStyle = "rgba(10,16,26,0.72)";
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = '900 88px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "rgba(233,240,255,0.98)";
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 10;
+  ctx.fillText(String(text ?? "Portal"), canvas.width / 2, canvas.height / 2);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function createPortalGroup({ label, color = 0x34d399 } = {}) {
+  const group = new THREE.Group();
+  group.name = "Portal";
+
+  const ringGeom = new THREE.TorusGeometry(2.25, 0.28, 14, 44);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.95,
+  });
+  const ring = new THREE.Mesh(ringGeom, ringMat);
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  const glowGeom = new THREE.TorusGeometry(2.25, 0.42, 10, 44);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.18,
+  });
+  const glow = new THREE.Mesh(glowGeom, glowMat);
+  glow.rotation.x = Math.PI / 2;
+  group.add(glow);
+
+  const portalPlane = new THREE.Mesh(
+    new THREE.CircleGeometry(2.0, 48),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.16,
+      side: THREE.DoubleSide,
+    })
+  );
+  portalPlane.rotation.x = Math.PI / 2;
+  portalPlane.position.y = 0.02;
+  group.add(portalPlane);
+
+  const tex = createPortalLabelTexture(label);
+  if (tex) {
+    const labelMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(6.5, 1.7),
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 1.0, side: THREE.DoubleSide })
+    );
+    labelMesh.position.set(0, 3.0, 0);
+    group.add(labelMesh);
+  }
+
+  group.userData.ring = ring;
+  group.userData.glow = glow;
+  group.userData.portalPlane = portalPlane;
+  return group;
+}
+
+// ------------------------------------------------------------
 // World sizing (shared by game + editor)
 // ------------------------------------------------------------
 // Single source of truth: changing this affects both the ground mesh
@@ -1981,6 +2133,135 @@ function runGame() {
   const cameraRight = new THREE.Vector3();
   const tmpVec = new THREE.Vector3();
 
+  // -----------------------------
+  // Vibe Jam portals (trigger volumes)
+  // -----------------------------
+  const incomingPortal = parseIncomingPortalParams();
+  const incomingColor = parseHexOrNamedColor(incomingPortal.params?.get("color"), 0x34d399);
+  const portalExitGroup = createPortalGroup({ label: "Vibe Jam Portal", color: incomingColor });
+  portalExitGroup.position.set(-9.5, 0, -11.5);
+  scene.add(portalExitGroup);
+
+  let portalReturnGroup = null;
+  if (incomingPortal.portal && incomingPortal.ref) {
+    portalReturnGroup = createPortalGroup({ label: "Return Portal", color: 0x60a5fa });
+    portalReturnGroup.position.set(-6, 0, -17);
+    scene.add(portalReturnGroup);
+  }
+
+  const portalTmp = new THREE.Vector3();
+  const portalTriggered = { exit: false, back: false };
+  const EXIT_RADIUS = 2.1;
+  const EXIT_Y_MIN = -0.6;
+  const EXIT_Y_MAX = 3.5;
+
+  function currentPlayerPortalParams() {
+    const sp = new URLSearchParams(window.location.search || "");
+    const username = sp.get("username") ?? undefined;
+    const team = sp.get("team") ?? undefined;
+    const avatar_url = sp.get("avatar_url") ?? undefined;
+    const color = sp.get("color") ?? undefined;
+
+    // meters/second: use horizontal speed as the baseline "speed"
+    const speedX = velocity.x;
+    const speedY = verticalVelocity;
+    const speedZ = velocity.z;
+    const speed = Math.hypot(speedX, speedZ);
+
+    // hp continuity (1..100) when present; otherwise send current
+    let hp = undefined;
+    if (sp.has("hp")) {
+      const n = Number(sp.get("hp"));
+      if (Number.isFinite(n)) hp = THREE.MathUtils.clamp(Math.round(n), 1, 100);
+    } else {
+      hp = THREE.MathUtils.clamp(Math.round(combatSystem.playerHp ?? 100), 1, 100);
+    }
+
+    const rotX = 0;
+    const rotY = character?.rotation?.y ?? 0;
+    const rotZ = 0;
+
+    // "ref" should be the *source game* when sending to vibejam, so include our URL.
+    const thisRef = `${window.location.origin}${window.location.pathname}`;
+
+    return {
+      username,
+      team,
+      avatar_url,
+      color,
+      hp,
+      speed: speed.toFixed(3),
+      speed_x: speedX.toFixed(3),
+      speed_y: speedY.toFixed(3),
+      speed_z: speedZ.toFixed(3),
+      rotation_x: String(rotX),
+      rotation_y: String(rotY),
+      rotation_z: String(rotZ),
+      ref: thisRef,
+    };
+  }
+
+  function triggerPortalRedirect(kind) {
+    if (kind === "exit") {
+      const params = currentPlayerPortalParams();
+      window.location.href = makePortalUrl(VIBEJAM_PORTAL_URL, params);
+      return;
+    }
+    if (kind === "back" && incomingPortal.ref) {
+      const params = currentPlayerPortalParams();
+      // Returning: include continuity params + portal=true.
+      window.location.href = makePortalUrl(incomingPortal.ref, {
+        ...params,
+        portal: "true",
+      });
+    }
+  }
+
+  function isCharacterInsidePortal(group) {
+    if (!character || !group) return false;
+    portalTmp.copy(character.position).sub(group.position);
+    if (portalTmp.y < EXIT_Y_MIN || portalTmp.y > EXIT_Y_MAX) return false;
+    const d2 = portalTmp.x * portalTmp.x + portalTmp.z * portalTmp.z;
+    return d2 <= EXIT_RADIUS * EXIT_RADIUS;
+  }
+
+  function updatePortals(dt, nowSeconds) {
+    // Keep portals grounded on the authored GLTF terrain.
+    if (portalExitGroup) {
+      portalExitGroup.position.y = sampleGroundY(portalExitGroup.position.x, portalExitGroup.position.z, 0) + 0.05;
+    }
+    if (portalReturnGroup) {
+      portalReturnGroup.position.y =
+        sampleGroundY(portalReturnGroup.position.x, portalReturnGroup.position.z, 0) + 0.05;
+    }
+
+    // Simple pulse animation (cheap, no allocations).
+    const pulse = 0.92 + Math.sin(nowSeconds * 2.2) * 0.08;
+    for (const g of [portalExitGroup, portalReturnGroup]) {
+      if (!g) continue;
+      const ring = g.userData.ring;
+      const glow = g.userData.glow;
+      const plane = g.userData.portalPlane;
+      if (ring) ring.scale.setScalar(pulse);
+      if (glow) glow.material.opacity = 0.12 + (pulse - 0.84) * 0.6;
+      if (plane) plane.material.opacity = 0.12 + (pulse - 0.84) * 0.4;
+    }
+
+    if (!character) return;
+    if (isGameOver || isGameWon) return;
+
+    // One-shot triggers to avoid rapid-fire redirects.
+    if (!portalTriggered.exit && isCharacterInsidePortal(portalExitGroup)) {
+      portalTriggered.exit = true;
+      triggerPortalRedirect("exit");
+      return;
+    }
+    if (portalReturnGroup && !portalTriggered.back && isCharacterInsidePortal(portalReturnGroup)) {
+      portalTriggered.back = true;
+      triggerPortalRedirect("back");
+    }
+  }
+
   const baseMoveSpeed = 4.5; // world units / sec
   const sprintMultiplier = 1.6;
   const accelSharpness = 22; // higher = quicker to target speed
@@ -2089,6 +2370,7 @@ function runGame() {
     lastTime = now;
 
     updateMovement(dt);
+    updatePortals(dt, now / 1000);
 
     // NPC + combat (math-only)
     const isEnded = isGameOver || isGameWon;
