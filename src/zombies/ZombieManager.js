@@ -60,6 +60,12 @@ export class ZombieManager {
     this._baseYOffset = 0;
     this._animTime = 0;
 
+    this._zombieTexturesP = this._loadZombieTextures({
+      diffuseUrl: "/zombie/textures/Material.001_diffuse.png",
+      normalUrl: "/zombie/textures/Material.001_normal.png",
+      specGlossUrl: "/zombie/textures/Material.001_specularGlossiness.png",
+    });
+
     this.mesh = this._createPlaceholderInstancedMesh();
     this.scene.add(this.mesh);
     this.hitOverlayMesh = this._createHitOverlayFor(this.mesh.geometry);
@@ -70,6 +76,63 @@ export class ZombieManager {
     this._tmpObj = new THREE.Object3D();
     this._tmpMat = new THREE.Matrix4();
     this._eps = 1e-6;
+  }
+
+  _loadZombieTextures({ diffuseUrl, normalUrl, specGlossUrl }) {
+    const loader = new THREE.TextureLoader();
+    const load = (url) =>
+      new Promise((resolve, reject) => {
+        loader.load(url, resolve, undefined, reject);
+      });
+
+    return Promise.all([load(diffuseUrl), load(normalUrl), load(specGlossUrl)]).then(
+      ([diffuse, normal, specGloss]) => {
+        // The zombie model is loaded from glTF; match glTF texture conventions.
+        diffuse.flipY = false;
+        normal.flipY = false;
+        specGloss.flipY = false;
+
+        diffuse.colorSpace = THREE.SRGBColorSpace;
+        normal.colorSpace = THREE.NoColorSpace;
+        specGloss.colorSpace = THREE.NoColorSpace;
+
+        diffuse.needsUpdate = true;
+        normal.needsUpdate = true;
+        specGloss.needsUpdate = true;
+
+        return { diffuse, normal, specGloss };
+      }
+    );
+  }
+
+  _makeZombieMaterial(baseMat, textures) {
+    const mat =
+      baseMat?.isMeshStandardMaterial
+        ? baseMat.clone()
+        : new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 1.0,
+            metalness: 0.0,
+          });
+
+    if (textures?.diffuse) mat.map = textures.diffuse;
+    if (textures?.normal) mat.normalMap = textures.normal;
+
+    // We have a spec/gloss texture, but this renderer uses metal/rough PBR.
+    // Apply a reasonable baseline and ignore spec/gloss unless we add conversion later.
+    mat.metalness = 0.0;
+    mat.roughness = 0.95;
+
+    // Preserve useful flags from the source material.
+    if (baseMat) {
+      if (typeof baseMat.transparent === "boolean") mat.transparent = baseMat.transparent;
+      if (typeof baseMat.opacity === "number") mat.opacity = baseMat.opacity;
+      if (typeof baseMat.alphaTest === "number") mat.alphaTest = baseMat.alphaTest;
+      if (typeof baseMat.side === "number") mat.side = baseMat.side;
+    }
+
+    mat.needsUpdate = true;
+    return mat;
   }
 
   _createPlaceholderInstancedMesh() {
@@ -157,6 +220,8 @@ export class ZombieManager {
         const parts = this._collectMeshParts(root);
         if (!parts.length) return;
 
+        const firstMat = parts[0]?.material ?? null;
+
         const { scale, baseYOffset } = this._computeScaleAndYOffset(root);
         this._modelScale = scale;
         this._baseYOffset = baseYOffset;
@@ -164,50 +229,56 @@ export class ZombieManager {
         // Build instanced meshes for every part (so we don't end up with "hands only").
         const newMeshes = [];
         const newOverlays = [];
-        for (const p of parts) {
-          const inst = new THREE.InstancedMesh(p.geometry, p.material, this.maxZombies);
-          inst.userData.localToRoot = p.localToRoot;
-          inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-          inst.castShadow = true;
-          inst.receiveShadow = true;
-          inst.frustumCulled = false;
-          inst.count = this.count;
-          newMeshes.push(inst);
+        this._zombieTexturesP
+          .catch(() => null)
+          .then((textures) => {
+            const zombieMat = this._makeZombieMaterial(firstMat, textures);
 
-          const overlay = this._createHitOverlayFor(p.geometry);
-          overlay.userData.localToRoot = p.localToRoot;
-          newOverlays.push(overlay);
-        }
+            for (const p of parts) {
+              const inst = new THREE.InstancedMesh(p.geometry, zombieMat, this.maxZombies);
+              inst.userData.localToRoot = p.localToRoot;
+              inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+              inst.castShadow = true;
+              inst.receiveShadow = true;
+              inst.frustumCulled = false;
+              inst.count = this.count;
+              newMeshes.push(inst);
 
-        // Swap out placeholder single-mesh mode.
-        this.scene.remove(this.mesh);
-        this._disposeInstancedMesh(this.mesh);
-        this.mesh = null;
+              const overlay = this._createHitOverlayFor(p.geometry);
+              overlay.userData.localToRoot = p.localToRoot;
+              newOverlays.push(overlay);
+            }
 
-        this.scene.remove(this.hitOverlayMesh);
-        this._disposeInstancedMesh(this.hitOverlayMesh);
-        this.hitOverlayMesh = null;
+            // Swap out placeholder single-mesh mode.
+            this.scene.remove(this.mesh);
+            this._disposeInstancedMesh(this.mesh);
+            this.mesh = null;
 
-        // Remove old multi-part if any.
-        if (this.meshParts) {
-          for (const m of this.meshParts) this.scene.remove(m);
-          this._disposeInstancedMeshes(this.meshParts);
-        }
-        if (this.hitOverlayParts) {
-          for (const m of this.hitOverlayParts) this.scene.remove(m);
-          this._disposeInstancedMeshes(this.hitOverlayParts);
-        }
+            this.scene.remove(this.hitOverlayMesh);
+            this._disposeInstancedMesh(this.hitOverlayMesh);
+            this.hitOverlayMesh = null;
 
-        this.meshParts = newMeshes;
-        this.hitOverlayParts = newOverlays;
-        for (const m of this.meshParts) this.scene.add(m);
-        for (const m of this.hitOverlayParts) this.scene.add(m);
+            // Remove old multi-part if any.
+            if (this.meshParts) {
+              for (const m of this.meshParts) this.scene.remove(m);
+              this._disposeInstancedMeshes(this.meshParts);
+            }
+            if (this.hitOverlayParts) {
+              for (const m of this.hitOverlayParts) this.scene.remove(m);
+              this._disposeInstancedMeshes(this.hitOverlayParts);
+            }
 
-        // Re-upload current zombie transforms/colors
-        for (let i = 0; i < this.count; i++) {
-          this._writeMatrixAt(i, this.dying[i] ? 0.001 : 1);
-        }
-        for (const m of this.meshParts) m.instanceMatrix.needsUpdate = true;
+            this.meshParts = newMeshes;
+            this.hitOverlayParts = newOverlays;
+            for (const m of this.meshParts) this.scene.add(m);
+            for (const m of this.hitOverlayParts) this.scene.add(m);
+
+            // Re-upload current zombie transforms/colors
+            for (let i = 0; i < this.count; i++) {
+              this._writeMatrixAt(i, this.dying[i] ? 0.001 : 1);
+            }
+            for (const m of this.meshParts) m.instanceMatrix.needsUpdate = true;
+          });
       },
       undefined,
       () => {

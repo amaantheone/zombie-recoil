@@ -4,109 +4,83 @@
     "position": {
       "x": 0,
       "y": 0,
-      "z": 0
+      "z": 20
+    },
+    "rotation": {
+      "y": 3.141592653589793
+    },
+    "scale": 5
+  },
+  {
+    "type": "silo",
+    "position": {
+      "x": -20,
+      "y": 0,
+      "z": -20
     },
     "rotation": {
       "y": 0
-    }
+    },
+    "scale": 3
   },
   {
-    "type": "house",
+    "type": "frame",
+    "position": {
+      "x": 20,
+      "y": 0,
+      "z": 15
+    },
+    "rotation": {
+      "y": 0
+    },
+    "scale": 4.5
+  },
+  {
+    "type": "barricade",
     "position": {
       "x": 0,
       "y": 0,
-      "z": -5
+      "z": 10
     },
     "rotation": {
-      "y": 0
-    }
-  },
-  {
-    "type": "house",
-    "position": {
-      "x": 0,
-      "y": 0,
-      "z": -15
+      "y": 3.141592653589793
     },
-    "rotation": {
-      "y": 0
-    }
+    "scale": 3
   },
   {
-    "type": "house",
+    "type": "barricade",
     "position": {
-      "x": 0,
-      "y": 0,
-      "z": -10
-    },
-    "rotation": {
-      "y": 0
-    }
-  },
-  {
-    "type": "house",
-    "position": {
-      "x": 0,
-      "y": 0,
-      "z": 5
-    },
-    "rotation": {
-      "y": 0
-    }
-  },
-  {
-    "type": "house",
-    "position": {
-      "x": 5,
+      "x": 15,
       "y": 0,
       "z": 0
     },
     "rotation": {
-      "y": 0
-    }
-  },
-  {
-    "type": "house",
-    "position": {
-      "x": 5,
-      "y": 0,
-      "z": 5
+      "y": 1.5707963267948963
     },
-    "rotation": {
-      "y": 0
-    }
+    "scale": 3
   },
   {
-    "type": "house",
+    "type": "barricade",
     "position": {
-      "x": 5,
-      "y": 0,
-      "z": -5
-    },
-    "rotation": {
-      "y": 0
-    }
-  },
-  {
-    "type": "house",
-    "position": {
-      "x": 5,
+      "x": 20,
       "y": 0,
       "z": -10
     },
     "rotation": {
-      "y": 0
-    }
+      "y": 1.5707963267948963
+    },
+    "scale": 3
   },
   {
-    "type": "house",
+    "type": "barricade",
     "position": {
-      "x": 5,
+      "x": -25,
       "y": 0,
-      "z": -15
+      "z": 20
     },
     "rotation": {
-      "y": 0
-    }
+      "y": 1.5707963267948963
+    },
+    "scale": 3
   }
 ]

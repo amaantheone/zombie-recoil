@@ -1,0 +1,11 @@
+Model Information:
+* title:	Blocky Stylized Zombie
+* source:	https://sketchfab.com/3d-models/blocky-stylized-zombie-60dd87b901b24e3dbbbe722d68201a9d
+* author:	ARTEL_3D (https://sketchfab.com/artel_3D)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Blocky Stylized Zombie" (https://sketchfab.com/3d-models/blocky-stylized-zombie-60dd87b901b24e3dbbbe722d68201a9d) by ARTEL_3D (https://sketchfab.com/artel_3D) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
