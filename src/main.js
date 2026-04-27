@@ -20,6 +20,13 @@ document.body.appendChild(renderer.domElement);
 
 const BASE_URL = import.meta.env.BASE_URL;
 
+// ------------------------------------------------------------
+// World sizing (shared by game + editor)
+// ------------------------------------------------------------
+// Single source of truth: changing this affects both the ground mesh
+// size and the playable/editor bounds rectangle (derived from size).
+const GROUND_SIZE = 150;
+
 function onResize(camera) {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -358,7 +365,7 @@ function runEditor() {
   });
   applyTiledGroundTexture(renderer, sandMat, `${BASE_URL}textures/sandy_ground.png`, 40);
 
-  const groundSize = 75;
+  const groundSize = GROUND_SIZE;
   // Single low-poly plane for iGPU friendliness
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, groundSize, 1, 1), sandMat);
   ground.rotation.x = -Math.PI / 2;
@@ -366,9 +373,13 @@ function runEditor() {
   ground.frustumCulled = true;
   scene.add(ground);
 
-  // Map boundary ("Inpassable Sand Dunes" placeholder bounds).
-  // Adjust these to match your actual plan.
-  const bounds = { minX: -50, maxX: 50, minZ: -50, maxZ: 50 };
+  // Map boundary derived from ground size (single source of truth).
+  const bounds = {
+    minX: -groundSize / 2,
+    maxX: groundSize / 2,
+    minZ: -groundSize / 2,
+    maxZ: groundSize / 2,
+  };
 
   const boundsLine = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.PlaneGeometry(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ)),
@@ -1141,7 +1152,7 @@ function runGame() {
   });
   applyTiledGroundTexture(renderer, groundMat, `${BASE_URL}textures/sandy_ground.png`, 40);
 
-  const groundSize = 75;
+  const groundSize = GROUND_SIZE;
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(groundSize, groundSize),
     groundMat
@@ -1481,7 +1492,7 @@ function runGame() {
         <div class="title">You lose</div>
         <button class="btn" type="button">Try again</button>
       </div>
-    `; 
+    `;
     document.body.appendChild(root);
 
     const style = document.createElement("style");
