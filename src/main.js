@@ -1481,7 +1481,7 @@ function runGame() {
         <div class="title">You lose</div>
         <button class="btn" type="button">Try again</button>
       </div>
-    `;
+    `; 
     document.body.appendChild(root);
 
     const style = document.createElement("style");
