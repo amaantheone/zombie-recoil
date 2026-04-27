@@ -1479,7 +1479,7 @@ function runGame() {
     root.innerHTML = `
       <div class="panel">
         <div class="title">You lose</div>
-        <button class="btn" type="button">try-again</button>
+        <button class="btn" type="button">Try again</button>
       </div>
     `;
     document.body.appendChild(root);
