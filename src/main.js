@@ -1478,7 +1478,7 @@ function runGame() {
     collisionTmpBox.copy(local);
     collisionTmpBox.applyMatrix4(collisionMatrix);
     return collisionTmpBox;
-  }
+  } 
 
   function resolveSlide(pos, delta, candidates) {
     // axis-separated slide: try full move, then x-only, then z-only
