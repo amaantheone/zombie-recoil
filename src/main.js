@@ -40,6 +40,86 @@ function onResize(camera) {
 
 const LEVEL_STORAGE_KEY = "zombieRecoil.level.v1";
 const DEFAULT_LEVEL_URL = `${BASE_URL}maps/level.json`;
+const DEFAULT_MAP_SCENE_URL = `${BASE_URL}map/scene.gltf`;
+// The imported map is authored at a much larger scale than the character/world units.
+// Keep this as a single knob so both game + editor stay consistent.
+const DEFAULT_MAP_SCENE_SCALE = 50;
+
+function loadStaticMapScene({
+  scene,
+  url = DEFAULT_MAP_SCENE_URL,
+  scale = DEFAULT_MAP_SCENE_SCALE,
+  autoGround = true,
+  onLoaded = null,
+} = {}) {
+  const loader = new GLTFLoader();
+  loader.load(
+    url,
+    (gltf) => {
+      const root = gltf.scene ?? gltf.scenes?.[0];
+      if (!root) return;
+      root.name = "StaticMapScene";
+      root.matrixAutoUpdate = true;
+      root.scale.setScalar(scale);
+      root.updateWorldMatrix(true, true);
+
+      if (autoGround) {
+        try {
+          const box = new THREE.Box3().setFromObject(root);
+          if (Number.isFinite(box.min.y)) {
+            // Move the map so its lowest point sits at y=0.
+            root.position.y -= box.min.y;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      root.traverse((o) => {
+        if (!o) return;
+        o.matrixAutoUpdate = false;
+        if (o.isMesh) {
+          o.castShadow = false;
+          o.receiveShadow = true;
+          o.frustumCulled = true;
+        }
+      });
+      root.updateWorldMatrix(true, true);
+      scene.add(root);
+      try {
+        onLoaded?.(root);
+      } catch (e) {
+        console.warn("[map] onLoaded failed", e);
+      }
+    },
+    undefined,
+    (err) => {
+      console.warn(`[map] Failed to load ${url}`, err);
+    }
+  );
+}
+
+function buildStaticMapColliders(root, { maxColliders = 2500, minSize = 0.25 } = {}) {
+  /** @type {{ box: THREE.Box3, center: THREE.Vector3 }[]} */
+  const colliders = [];
+  const box = new THREE.Box3();
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+
+  root.updateWorldMatrix(true, true);
+  root.traverse((o) => {
+    if (!o?.isMesh) return;
+    if (!o.geometry) return;
+    if (colliders.length >= maxColliders) return;
+    box.setFromObject(o);
+    box.getSize(size);
+    if (!Number.isFinite(size.x) || !Number.isFinite(size.y) || !Number.isFinite(size.z)) return;
+    if (size.x < minSize && size.z < minSize) return; // ignore tiny bits
+    box.getCenter(center);
+    colliders.push({ box: box.clone(), center: center.clone() });
+  });
+  return colliders;
+}
 
 function downloadTextFile(filename, text) {
   const blob = new Blob([text], { type: "application/json" });
@@ -356,6 +436,9 @@ function runEditor() {
   sun.target.position.set(0, 0, 0);
   scene.add(sun);
   scene.add(sun.target);
+
+  // Static environment scene (GLTF) served from `public/map/`
+  loadStaticMapScene({ scene });
 
   // Tileable sand (falls back to color if texture missing)
   const sandMat = new THREE.MeshStandardMaterial({
@@ -812,7 +895,7 @@ function runEditor() {
         body: JSON.stringify(objects),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setStatus("Synced to `public/maps/level.json`");
+      setStatus("Synced (localStorage + dev server save-map)");
       console.log("Sync successful");
       if (btn) {
         btn.textContent = "Saved!";
@@ -1117,6 +1200,101 @@ function runGame() {
   const assets = new AssetLoader();
   const runStartedAt = performance.now();
 
+  /** @type {{ box: THREE.Box3, center: THREE.Vector3 }[]} */
+  let mapColliders = [];
+  /** @type {THREE.Object3D | null} */
+  let mapRoot = null;
+  /** @type {THREE.Mesh[]} */
+  let mapMeshes = [];
+  const groundRaycaster = new THREE.Raycaster();
+  const groundRayOrigin = new THREE.Vector3();
+  const groundRayDir = new THREE.Vector3(0, -1, 0);
+  const groundHits = [];
+
+  // Static environment scene (GLTF) served from `public/map/`
+  loadStaticMapScene({
+    scene,
+    onLoaded: (root) => {
+      mapRoot = root;
+      mapMeshes = [];
+      root.traverse((o) => {
+        if (o?.isMesh) mapMeshes.push(o);
+      });
+      mapColliders = buildStaticMapColliders(root, { maxColliders: 4000, minSize: 0.35 });
+      console.log(`[map] Built ${mapColliders.length} colliders from ${mapMeshes.length} meshes`);
+    },
+  });
+
+  function sampleGroundY(x, z, fallback = 0) {
+    if (!mapMeshes.length) return fallback;
+    // Cast from high above downwards.
+    groundRayOrigin.set(x, 10000, z);
+    groundRaycaster.set(groundRayOrigin, groundRayDir);
+    groundRaycaster.far = 20000;
+    groundRaycaster.near = 0;
+    // Reuse array to reduce allocations.
+    groundHits.length = 0;
+    const hits = groundRaycaster.intersectObjects(mapMeshes, true, groundHits);
+    if (hits && hits.length) return hits[0].point.y;
+    return fallback;
+  }
+
+  const wallRaycaster = new THREE.Raycaster();
+  const wallRayOrigin = new THREE.Vector3();
+  const wallRayDir = new THREE.Vector3();
+  const wallHits = [];
+  const worldNormal = new THREE.Vector3();
+  const normalMatrix = new THREE.Matrix3();
+
+  function resolveMapWallSlide(pos, delta, radius) {
+    if (!mapMeshes.length) return delta;
+    const len = Math.hypot(delta.x, delta.z);
+    if (len <= 1e-8) return delta;
+
+    // Raycast horizontally in the movement direction at two heights.
+    wallRayDir.set(delta.x / len, 0, delta.z / len);
+    wallRaycaster.near = 0;
+    wallRaycaster.far = radius + len + 0.05;
+
+    const heights = [0.15, characterHalfHeight * 2 * 0.8];
+    let blockedNormal = null;
+
+    for (const h of heights) {
+      wallRayOrigin.set(pos.x, pos.y + h, pos.z);
+      wallRaycaster.set(wallRayOrigin, wallRayDir);
+      wallHits.length = 0;
+      const hits = wallRaycaster.intersectObjects(mapMeshes, true, wallHits);
+      if (!hits || !hits.length) continue;
+
+      for (const hit of hits) {
+        // Ignore floor/ceil-ish surfaces; only treat near-vertical faces as walls/obstacles.
+        const face = hit.face;
+        const obj = hit.object;
+        if (!face || !obj) continue;
+        normalMatrix.getNormalMatrix(obj.matrixWorld);
+        worldNormal.copy(face.normal).applyMatrix3(normalMatrix).normalize();
+        if (Math.abs(worldNormal.y) > 0.55) continue;
+
+        if (hit.distance <= radius + 0.02) {
+          blockedNormal = worldNormal.clone();
+          break;
+        }
+      }
+      if (blockedNormal) break;
+    }
+
+    if (!blockedNormal) return delta;
+
+    // Slide along wall: remove component into the wall normal.
+    const n = blockedNormal;
+    const into = delta.x * n.x + delta.z * n.z;
+    if (into < 0) {
+      delta.x -= n.x * into;
+      delta.z -= n.z * into;
+    }
+    return delta;
+  }
+
   const camera = new THREE.PerspectiveCamera(
     60,
     window.innerWidth / window.innerHeight,
@@ -1144,29 +1322,14 @@ function runGame() {
   dirLight.shadow.camera.bottom = -15;
   scene.add(dirLight);
 
-  // Big textured ground
-  const groundMat = new THREE.MeshStandardMaterial({
-    color: 0xd1b48c,
-    roughness: 1.0,
-    metalness: 0.0,
-  });
-  applyTiledGroundTexture(renderer, groundMat, `${BASE_URL}textures/sandy_ground.png`, 40);
-
-  const groundSize = GROUND_SIZE;
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(groundSize, groundSize),
-    groundMat
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  // Game bounds derived from groundSize (spawn edges, simple clamping).
+  // When using an authored GLTF map, we skip the legacy sandy ground + prefab placements.
+  // Keep bounds generous so spawns/clamping still function.
+  const USE_LEGACY_PREFAB_PLACEMENTS = false;
   const gameBounds = {
-    minX: -groundSize / 2,
-    maxX: groundSize / 2,
-    minZ: -groundSize / 2,
-    maxZ: groundSize / 2,
+    minX: -100,
+    maxX: 100,
+    minZ: -100,
+    maxZ: 100,
   };
 
   // Core loop systems (math-based, no physics engine)
@@ -1200,10 +1363,10 @@ function runGame() {
 
   const hud = new Hud({ playerMaxHp: 100 });
 
-  // Auto-load placements and convert to InstancedMeshes for VRAM friendliness
+  // Legacy prefab placement system (disabled when using GLTF map)
   const instancedBuildings = new THREE.Group();
   instancedBuildings.name = "InstancedBuildings";
-  scene.add(instancedBuildings);
+  if (USE_LEGACY_PREFAB_PLACEMENTS) scene.add(instancedBuildings);
 
   // -----------------------------
   // Collision: cheap Box3 checks
@@ -1222,6 +1385,7 @@ function runGame() {
   const gamePlacements = [];
 
   (async () => {
+    if (!USE_LEGACY_PREFAB_PLACEMENTS) return;
     const placements = await loadLevelPlacements({ preferLocalStorage: false });
     const byType = new Map();
     for (const p of placements) {
@@ -1731,6 +1895,16 @@ function runGame() {
       character.position.z += -center2.z;
       character.position.y += -box2.min.y;
 
+      // Snap feet onto map ground so we don't spawn inside elevated geometry.
+      // (Falls back to y=0 if map isn't loaded yet.)
+      {
+        const groundY = sampleGroundY(character.position.x, character.position.z, 0);
+        character.position.y = groundY + 0.02;
+        verticalVelocity = 0;
+        isGrounded = true;
+        isJumping = false;
+      }
+
       // Cache character height for camera pivot (head/upper torso)
       characterHeight = Math.max(1e-6, box2.getSize(new THREE.Vector3()).y);
       cameraTarget = new THREE.Vector3(0, characterHeight * 0.85, 0);
@@ -1884,38 +2058,20 @@ function runGame() {
     // Snap to exact stop when input is released and we're nearly stopped
     if (!hasInput && velocity.lengthSq() < 0.0002) velocity.set(0, 0, 0);
 
-    // Collision: only check nearest 5-10 placed objects
+    // Collision: simple wall-slide vs map meshes (raycast-based)
     const move = collisionDelta.copy(velocity).multiplyScalar(dt);
 
-    // Gather nearest candidates by XZ distance (cheap)
-    if (gamePlacements.length) {
-      const candidates = [];
-      const px = character.position.x;
-      const pz = character.position.z;
-      for (const pl of gamePlacements) {
-        const dx = pl.position.x - px;
-        const dz = pl.position.z - pz;
-        const d2 = dx * dx + dz * dz;
-        candidates.push({ d2, pl });
-      }
-      candidates.sort((a, b) => a.d2 - b.d2);
-      const closest = candidates.slice(0, 10);
-      const boxes = [];
-      for (const c of closest) {
-        const b = computeInstanceBox(c.pl.type, c.pl);
-        if (b) boxes.push(b.clone());
-      }
-      const resolved = resolveSlide(character.position, move, boxes);
-      character.position.add(resolved);
-    } else {
-      character.position.add(move);
-    }
+    // Map collision first (new GLTF map)
+    const resolvedMap = resolveMapWallSlide(character.position, move, characterRadius);
+    character.position.add(resolvedMap);
 
-    // Gravity + ground clamp
+    // Gravity + ground snap to map surface
+    const groundY = sampleGroundY(character.position.x, character.position.z, 0);
     verticalVelocity -= gravity * dt;
     character.position.y += verticalVelocity * dt;
-    if (character.position.y <= 0) {
-      character.position.y = 0;
+
+    if (character.position.y <= groundY) {
+      character.position.y = groundY;
       verticalVelocity = 0;
       isGrounded = true;
       isJumping = false;
