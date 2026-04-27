@@ -6,11 +6,13 @@ import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils.js";
 
+const BASE_URL = import.meta.env.BASE_URL;
+
 const DEFAULT_PREFAB_URLS = {
-  House: "/prefabs/house.glb",
-  Silo: "/prefabs/silo.glb",
-  Frame: "/prefabs/frame.glb",
-  Barricade: "/prefabs/barricade.glb",
+  House: `${BASE_URL}prefabs/house.glb`,
+  Silo: `${BASE_URL}prefabs/silo.glb`,
+  Frame: `${BASE_URL}prefabs/frame.glb`,
+  Barricade: `${BASE_URL}prefabs/barricade.glb`,
 };
 
 function cloneObject3D(obj) {

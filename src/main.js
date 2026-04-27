@@ -18,6 +18,8 @@ renderer.setClearColor(0x1b2a41, 1);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
+const BASE_URL = import.meta.env.BASE_URL;
+
 function onResize(camera) {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -30,7 +32,7 @@ function onResize(camera) {
 // ------------------------------------------------------------
 
 const LEVEL_STORAGE_KEY = "zombieRecoil.level.v1";
-const DEFAULT_LEVEL_URL = "/maps/level.json";
+const DEFAULT_LEVEL_URL = `${BASE_URL}maps/level.json`;
 
 function downloadTextFile(filename, text) {
   const blob = new Blob([text], { type: "application/json" });
@@ -1477,7 +1479,7 @@ function runGame() {
 
   const gltfLoader = new GLTFLoader();
   gltfLoader.load(
-    "/character/scene.gltf",
+    `${BASE_URL}character/scene.gltf`,
     (gltf) => {
       character = gltf.scene;
       character.position.set(0, 0, 0);

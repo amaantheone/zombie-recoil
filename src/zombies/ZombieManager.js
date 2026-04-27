@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+const BASE_URL = import.meta.env.BASE_URL;
+
 const DEFAULTS = Object.freeze({
   maxZombies: 256,
   speed: 1.35,
@@ -61,16 +63,16 @@ export class ZombieManager {
     this._animTime = 0;
 
     this._zombieTexturesP = this._loadZombieTextures({
-      diffuseUrl: "/zombie/textures/Material.001_diffuse.png",
-      normalUrl: "/zombie/textures/Material.001_normal.png",
-      specGlossUrl: "/zombie/textures/Material.001_specularGlossiness.png",
+      diffuseUrl: `${BASE_URL}zombie/textures/Material.001_diffuse.png`,
+      normalUrl: `${BASE_URL}zombie/textures/Material.001_normal.png`,
+      specGlossUrl: `${BASE_URL}zombie/textures/Material.001_specularGlossiness.png`,
     });
 
     this.mesh = this._createPlaceholderInstancedMesh();
     this.scene.add(this.mesh);
     this.hitOverlayMesh = this._createHitOverlayFor(this.mesh.geometry);
     this.scene.add(this.hitOverlayMesh);
-    this._tryLoadZombieGLB("/zombie/scene.gltf");
+    this._tryLoadZombieGLB(`${BASE_URL}zombie/scene.gltf`);
 
     // Reused temps
     this._tmpObj = new THREE.Object3D();

@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
+const BASE_URL = import.meta.env.BASE_URL;
+
 export const BoomerangState = Object.freeze({
   IDLE: "IDLE",
   THROWN: "THROWN",
@@ -49,7 +51,7 @@ export class Boomerang {
     // Visual: load GLB (fallback to placeholder if needed).
     this.mesh = this._createPlaceholderMesh();
     this.scene.add(this.mesh);
-    this._loadModel("/boomerang.glb");
+    this._loadModel(`${BASE_URL}boomerang.glb`);
   }
 
   _createPlaceholderMesh() {
