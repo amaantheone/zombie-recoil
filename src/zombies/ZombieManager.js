@@ -22,6 +22,7 @@ export class ZombieManager {
    *  scene: THREE.Scene,
    *  bounds: {minX:number,maxX:number,minZ:number,maxZ:number},
    *  maxZombies?: number,
+   *  totalToSpawn?: number,
    *  speed?: number,
    *  spawnEverySeconds?: number,
    *  hp?: number,
@@ -32,6 +33,7 @@ export class ZombieManager {
     this.scene = params.scene;
     this.bounds = params.bounds;
     this.maxZombies = params.maxZombies ?? DEFAULTS.maxZombies;
+    this.totalToSpawn = Number.isFinite(params.totalToSpawn) ? Math.max(0, params.totalToSpawn) : null;
     this.speed = params.speed ?? DEFAULTS.speed;
     this.spawnEverySeconds = params.spawnEverySeconds ?? DEFAULTS.spawnEverySeconds;
     this.baseHp = params.hp ?? DEFAULTS.hp;
@@ -49,6 +51,7 @@ export class ZombieManager {
 
     this.count = 0;
     this.kills = 0;
+    this.spawned = 0;
     this._spawnT = 0;
 
     // Base zombie should keep its original model/texture.
@@ -372,6 +375,7 @@ export class ZombieManager {
 
   _spawnOne() {
     if (this.count >= this.maxZombies) return;
+    if (this.totalToSpawn != null && this.spawned >= this.totalToSpawn) return;
     const i = this.count++;
     if (this.mesh) this.mesh.count = this.count;
     if (this.meshParts) for (const m of this.meshParts) m.count = this.count;
@@ -405,6 +409,12 @@ export class ZombieManager {
 
     // initial matrix + color
     this._writeMatrixAt(i, 1);
+    this.spawned++;
+  }
+
+  isWaveComplete() {
+    if (this.totalToSpawn == null) return false;
+    return this.spawned >= this.totalToSpawn && this.count === 0;
   }
 
   _writeMatrixAt(i, scale = 1) {
@@ -448,6 +458,7 @@ export class ZombieManager {
       this._spawnT -= this.spawnEverySeconds;
       this._spawnOne();
       if (this.count >= this.maxZombies) break;
+      if (this.totalToSpawn != null && this.spawned >= this.totalToSpawn) break;
     }
 
     if (!playerPos || this.count === 0) {

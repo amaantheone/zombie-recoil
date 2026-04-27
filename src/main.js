@@ -356,7 +356,7 @@ function runEditor() {
     roughness: 1.0,
     metalness: 0.0,
   });
-  applyTiledGroundTexture(renderer, sandMat, "/textures/sandy_ground.png", 40);
+  applyTiledGroundTexture(renderer, sandMat, `${BASE_URL}textures/sandy_ground.png`, 40);
 
   const groundSize = 75;
   // Single low-poly plane for iGPU friendliness
@@ -1104,6 +1104,7 @@ function runEditor() {
 function runGame() {
   const scene = new THREE.Scene();
   const assets = new AssetLoader();
+  const runStartedAt = performance.now();
 
   const camera = new THREE.PerspectiveCamera(
     60,
@@ -1138,7 +1139,7 @@ function runGame() {
     roughness: 1.0,
     metalness: 0.0,
   });
-  applyTiledGroundTexture(renderer, groundMat, "/textures/sandy_ground.png", 40);
+  applyTiledGroundTexture(renderer, groundMat, `${BASE_URL}textures/sandy_ground.png`, 40);
 
   const groundSize = 75;
   const ground = new THREE.Mesh(
@@ -1161,7 +1162,9 @@ function runGame() {
   const zombieManager = new ZombieManager({
     scene,
     bounds: gameBounds,
-    maxZombies: 256,
+    // Keep the game iGPU-friendly: hard cap + finite wave (win when all defeated).
+    maxZombies: 64,
+    totalToSpawn: 48,
     speed: 1.35,
     spawnEverySeconds: 1.0,
     hp: 100,
@@ -1171,7 +1174,7 @@ function runGame() {
   const boomerang = new Boomerang({
     scene,
     speed: 14,
-    maxDistance: 14,
+    maxDistance: 16,
     spinSpeed: 18,
     radius: 1.5,
     damage: 50,
@@ -1337,9 +1340,23 @@ function runGame() {
     back: false,
     left: false,
     right: false,
+    jumpQueued: false,
+    shift: false,
   };
 
   function setKey(e, isDown) {
+    if (isGameOver || isGameWon) return;
+    if (e.code === "Space") {
+      // Queue a jump on keydown only (prevents repeat spam)
+      if (isDown && !e.repeat) keys.jumpQueued = true;
+      e.preventDefault();
+      return;
+    }
+    if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+      keys.shift = isDown;
+      e.preventDefault();
+      return;
+    }
     switch (e.code) {
       case "KeyW":
       case "ArrowUp":
@@ -1369,6 +1386,7 @@ function runGame() {
   // Left-click: throw dagger-boomerang (RMB is reserved for camera orbit)
   window.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
+    if (isGameOver || isGameWon) return;
     boomerang.tryThrow(character, cameraYaw);
   });
 
@@ -1435,14 +1453,208 @@ function runGame() {
   let idleAction = null;
   let walkAction = null;
   let runAction = null;
+  let jumpAction = null;
+  let loseAction = null;
   let activeAction = null;
   let characterHeight = 1.7;
+  let isJumping = false;
+  let isGameOver = false;
+  let gameOverUiShown = false;
+  let isGameWon = false;
+  let gameWonUiShown = false;
 
   function fadeToAction(nextAction, duration = 0.15) {
     if (!nextAction || nextAction === activeAction) return;
     nextAction.reset().play();
     if (activeAction) nextAction.crossFadeFrom(activeAction, duration, true);
     activeAction = nextAction;
+  }
+
+  function showGameOverUi() {
+    if (gameOverUiShown) return;
+    gameOverUiShown = true;
+
+    const root = document.createElement("div");
+    root.id = "zombie-recoil-gameover";
+    root.innerHTML = `
+      <div class="panel">
+        <div class="title">You lose</div>
+        <button class="btn" type="button">try-again</button>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    const style = document.createElement("style");
+    style.setAttribute("data-zombie-recoil-gameover-style", "true");
+    style.textContent = `
+      #zombie-recoil-gameover{
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        background: rgba(0,0,0,0.72);
+        backdrop-filter: blur(6px);
+        pointer-events: auto;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        color: #e9f0ff;
+      }
+      #zombie-recoil-gameover .panel{
+        width: min(420px, calc(100vw - 32px));
+        border-radius: 16px;
+        padding: 18px 16px;
+        background: rgba(10,16,26,0.92);
+        border: 1px solid rgba(255,255,255,0.14);
+        box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+        text-align: center;
+      }
+      #zombie-recoil-gameover .title{
+        font-size: 20px;
+        font-weight: 850;
+        letter-spacing: 0.02em;
+        margin-bottom: 14px;
+      }
+      #zombie-recoil-gameover .btn{
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 2px solid rgba(110,231,255,0.85);
+        background: rgba(110,231,255,0.18);
+        color: #e9f0ff;
+        cursor: pointer;
+        font-weight: 800;
+        text-transform: lowercase;
+        letter-spacing: 0.04em;
+      }
+      #zombie-recoil-gameover .btn:hover{
+        background: rgba(110,231,255,0.26);
+      }
+    `;
+    document.head.appendChild(style);
+
+    const btn = root.querySelector("button");
+    btn?.addEventListener("click", () => {
+      window.location.reload();
+    });
+  }
+
+  function showWinUi({ health, timeSeconds }) {
+    if (gameWonUiShown) return;
+    gameWonUiShown = true;
+
+    const root = document.createElement("div");
+    root.id = "zombie-recoil-win";
+    root.innerHTML = `
+      <div class="panel">
+        <div class="title">You win</div>
+        <div class="details">
+          <div class="row"><span class="k">health</span><span class="v">${health}</span></div>
+          <div class="row"><span class="k">time</span><span class="v">${timeSeconds.toFixed(1)}s</span></div>
+        </div>
+        <button class="btn" type="button">play again</button>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    const style = document.createElement("style");
+    style.setAttribute("data-zombie-recoil-win-style", "true");
+    style.textContent = `
+      #zombie-recoil-win{
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: grid;
+        place-items: center;
+        background: rgba(0,0,0,0.72);
+        backdrop-filter: blur(6px);
+        pointer-events: auto;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        color: #e9f0ff;
+      }
+      #zombie-recoil-win .panel{
+        width: min(460px, calc(100vw - 32px));
+        border-radius: 16px;
+        padding: 18px 16px;
+        background: rgba(10,16,26,0.92);
+        border: 1px solid rgba(255,255,255,0.14);
+        box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+        text-align: center;
+      }
+      #zombie-recoil-win .title{
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        margin-bottom: 12px;
+      }
+      #zombie-recoil-win .details{
+        margin: 10px 0 14px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.06);
+        text-align: left;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 13px;
+      }
+      #zombie-recoil-win .row{
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 0;
+      }
+      #zombie-recoil-win .k{ opacity: 0.85; }
+      #zombie-recoil-win .v{ font-weight: 850; }
+      #zombie-recoil-win .btn{
+        width: 100%;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 2px solid rgba(52,211,153,0.85);
+        background: rgba(52,211,153,0.16);
+        color: #e9f0ff;
+        cursor: pointer;
+        font-weight: 900;
+        text-transform: lowercase;
+        letter-spacing: 0.04em;
+      }
+      #zombie-recoil-win .btn:hover{
+        background: rgba(52,211,153,0.24);
+      }
+    `;
+    document.head.appendChild(style);
+
+    root.querySelector("button")?.addEventListener("click", () => {
+      window.location.reload();
+    });
+  }
+
+  function triggerGameOver() {
+    if (isGameOver) return;
+    isGameOver = true;
+
+    // Stop all motion immediately (no sliding / no mid-air freeze weirdness)
+    velocity.set(0, 0, 0);
+    verticalVelocity = 0;
+    isJumping = false;
+    keys.jumpQueued = false;
+
+    if (loseAction) {
+      fadeToAction(loseAction, 0.08);
+    } else {
+      // No clip available; still show the modal.
+      showGameOverUi();
+    }
+  }
+
+  function triggerWin() {
+    if (isGameOver || isGameWon) return;
+    isGameWon = true;
+
+    velocity.set(0, 0, 0);
+    verticalVelocity = 0;
+    isJumping = false;
+    keys.jumpQueued = false;
+
+    const timeSeconds = (performance.now() - runStartedAt) / 1000;
+    showWinUi({ health: Math.round(combatSystem.playerHp), timeSeconds });
   }
 
   const tmpOffset = new THREE.Vector3();
@@ -1525,12 +1737,45 @@ function runGame() {
         const idleClip = clips[0] || byName("idle") || clips[0];
         const walkClip = clips[1] || byName("walk") || clips[0];
         const runClip = clips[2] || byName("run") || clips[1] || clips[0];
+        const jumpClip =
+          byName("jump") ||
+          byName("hop") ||
+          byName("leap") ||
+          byName("air");
+        const loseClip =
+          byName("lose") ||
+          byName("loose") ||
+          byName("death") ||
+          byName("die") ||
+          byName("defeat") ||
+          byName("dead");
 
         idleAction = mixer.clipAction(idleClip);
         walkAction = mixer.clipAction(walkClip);
         runAction = mixer.clipAction(runClip);
+        if (jumpClip) {
+          jumpAction = mixer.clipAction(jumpClip);
+          jumpAction.setLoop(THREE.LoopOnce, 1);
+          jumpAction.clampWhenFinished = true;
+        }
+        if (loseClip) {
+          loseAction = mixer.clipAction(loseClip);
+          loseAction.setLoop(THREE.LoopOnce, 1);
+          loseAction.clampWhenFinished = true;
+        }
 
         fadeToAction(idleAction, 0);
+
+        mixer.addEventListener("finished", (ev) => {
+          // If the jump clip ends mid-air, we still keep the jump state until we land.
+          if (jumpAction && ev?.action === jumpAction) {
+            // allow locomotion switching again (unless we're still airborne)
+            if (character && character.position.y <= 0.0001) isJumping = false;
+          }
+          if (loseAction && ev?.action === loseAction) {
+            showGameOverUi();
+          }
+        });
       }
 
       scene.add(character);
@@ -1551,12 +1796,19 @@ function runGame() {
   const cameraRight = new THREE.Vector3();
   const tmpVec = new THREE.Vector3();
 
-  const moveSpeed = 4.5; // world units / sec
+  const baseMoveSpeed = 4.5; // world units / sec
+  const sprintMultiplier = 1.6;
   const accelSharpness = 22; // higher = quicker to target speed
   const decelSharpness = 28; // higher = quicker stop
   const rotationSharpness = 18; // higher = quicker turn toward target
 
   let currentYaw = Math.PI; // matches default facing
+
+  // Jump / gravity (simple; ground plane at y=0)
+  let verticalVelocity = 0;
+  let isGrounded = true;
+  const jumpSpeed = 6.2;
+  const gravity = 18.0;
 
   function deltaAngle(a, b) {
     // shortest signed difference from a -> b
@@ -1571,6 +1823,18 @@ function runGame() {
 
   function updateMovement(dt) {
     if (!character) return;
+    if (isGameOver || isGameWon) return;
+
+    // Jump request (Spacebar)
+    if (keys.jumpQueued) {
+      keys.jumpQueued = false;
+      if (isGrounded) {
+        verticalVelocity = jumpSpeed;
+        isGrounded = false;
+        isJumping = true;
+        if (jumpAction) fadeToAction(jumpAction, 0.06);
+      }
+    }
 
     // Camera-relative movement:
     // - RMB updates cameraYaw/cameraPitch.
@@ -1596,7 +1860,9 @@ function runGame() {
       currentYaw = dampAngle(currentYaw, targetYaw, dt, rotationSharpness);
       character.rotation.y = currentYaw;
 
-      desiredVelocity.copy(moveDir).multiplyScalar(moveSpeed);
+      const isSprinting = keys.shift && hasInput;
+      const maxSpeed = isSprinting ? baseMoveSpeed * sprintMultiplier : baseMoveSpeed;
+      desiredVelocity.copy(moveDir).multiplyScalar(maxSpeed);
     }
 
     // Smooth accel/decel toward desired velocity
@@ -1633,6 +1899,18 @@ function runGame() {
     } else {
       character.position.add(move);
     }
+
+    // Gravity + ground clamp
+    verticalVelocity -= gravity * dt;
+    character.position.y += verticalVelocity * dt;
+    if (character.position.y <= 0) {
+      character.position.y = 0;
+      verticalVelocity = 0;
+      isGrounded = true;
+      isJumping = false;
+    } else {
+      isGrounded = false;
+    }
   }
 
   window.addEventListener("resize", () => onResize(camera));
@@ -1646,11 +1924,14 @@ function runGame() {
     updateMovement(dt);
 
     // NPC + combat (math-only)
-    zombieManager.update(dt, character?.position ?? null);
+    const isEnded = isGameOver || isGameWon;
+    if (!isEnded) zombieManager.update(dt, character?.position ?? null);
     boomerang.update(dt, character, cameraYaw);
     if (character) {
-      combatSystem.update(dt, { x: character.position.x, z: character.position.z });
+      if (!isEnded) combatSystem.update(dt, { x: character.position.x, z: character.position.z });
       hud.update(combatSystem.playerHp, zombieManager.kills);
+      if (combatSystem.playerHp <= 0) triggerGameOver();
+      if (!isEnded && zombieManager.isWaveComplete?.()) triggerWin();
     } else {
       hud.update(combatSystem.playerHp, zombieManager.kills);
     }
@@ -1663,9 +1944,19 @@ function runGame() {
     // Animation state selection based on movement speed
     const speed = velocity.length();
     if (idleAction && walkAction && runAction) {
-      if (speed < 0.05) fadeToAction(idleAction);
-      else if (speed < moveSpeed * 0.75) fadeToAction(walkAction);
-      else fadeToAction(runAction);
+      if (!isJumping || !jumpAction) {
+        if (isGameOver) {
+          if (loseAction) fadeToAction(loseAction, 0.01);
+          else fadeToAction(idleAction, 0.01);
+        } else {
+          const isSprinting = keys.shift && (keys.forward || keys.back || keys.left || keys.right);
+          const maxSpeed = isSprinting ? baseMoveSpeed * sprintMultiplier : baseMoveSpeed;
+          if (speed < 0.05) fadeToAction(idleAction);
+          else if (isSprinting) fadeToAction(runAction);
+          else if (speed < maxSpeed * 0.75) fadeToAction(walkAction);
+          else fadeToAction(runAction);
+        }
+      }
     }
 
     renderer.render(scene, camera);
