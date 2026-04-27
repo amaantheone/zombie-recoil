@@ -3,6 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 export default defineConfig({
+  // GitHub Pages project site: https://<user>.github.io/<repo>/
+  // If you deploy to the root (custom domain or <user>.github.io), change this to "/".
+  base: "/zombie-recoil/",
   server: {
     middlewareMode: false,
   },
