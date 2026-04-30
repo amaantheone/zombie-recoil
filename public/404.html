@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zombie Recoil</title>
+    <meta http-equiv="refresh" content="0; url=/" />
+    <script>
+      // GitHub Pages doesn't support SPA rewrites.
+      // Redirect unknown paths (e.g. /edit) to hash routes the app understands (/#/edit).
+      (function () {
+        var path = window.location.pathname || "/";
+        var search = window.location.search || "";
+        var hash = window.location.hash || "";
+        // If already has a hash route, keep it.
+        if (hash && hash.startsWith("#/")) return;
+        // Avoid redirect loops.
+        if (path === "/" || path === "/index.html") return;
+        var next = "/#";
+        // Ensure hash route begins with "/".
+        if (path[0] !== "/") path = "/" + path;
+        next += path;
+        next += search;
+        window.location.replace(next);
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>
+
