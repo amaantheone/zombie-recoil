@@ -525,26 +525,6 @@ function createInstancedPrefab(type, count) {
   return mesh;
 }
 
-function applyTiledGroundTexture(renderer, material, url, repeat) {
-  const loader = new THREE.TextureLoader();
-  loader.load(
-    url,
-    (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.wrapS = THREE.RepeatWrapping;
-      tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(repeat, repeat);
-      tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-      material.map = tex;
-      material.needsUpdate = true;
-    },
-    undefined,
-    () => {
-      // Keep the fallback solid color material.
-    }
-  );
-}
-
 // ------------------------------------------------------------
 // Route selection
 // ------------------------------------------------------------
@@ -592,19 +572,20 @@ function runEditor() {
   // Static environment scene (GLTF) served from `public/map/`
   loadStaticMapScene({ scene });
 
-  // Tileable sand (falls back to color if texture missing)
-  const sandMat = new THREE.MeshStandardMaterial({
-    color: 0xd1b48c,
-    roughness: 1.0,
-    metalness: 0.0,
+  // Invisible pick plane for editor interactions (raycasting/placement).
+  // We keep a plane for stable intersection math, but don't render it so only
+  // the `public/map/` GLTF environment is visible.
+  const groundMat = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0.0,
+    depthWrite: false,
   });
-  applyTiledGroundTexture(renderer, sandMat, `${BASE_URL}textures/sandy_ground.png`, 40);
 
   const groundSize = GROUND_SIZE;
   // Single low-poly plane for iGPU friendliness
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, groundSize, 1, 1), sandMat);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(groundSize, groundSize, 1, 1), groundMat);
   ground.rotation.x = -Math.PI / 2;
-  ground.name = "SandGround";
+  ground.name = "EditorPickPlane";
   ground.frustumCulled = true;
   scene.add(ground);
 
@@ -616,18 +597,7 @@ function runEditor() {
     maxZ: groundSize / 2,
   };
 
-  const boundsLine = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.PlaneGeometry(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ)),
-    new THREE.LineBasicMaterial({ color: 0xffcf5a })
-  );
-  boundsLine.rotation.x = -Math.PI / 2;
-  boundsLine.position.set((bounds.minX + bounds.maxX) / 2, 0.02, (bounds.minZ + bounds.maxZ) / 2);
-  scene.add(boundsLine);
-
-  // Grid helper (5-unit grid)
-  const grid = new THREE.GridHelper(groundSize, groundSize / 5, 0x2b394f, 0x2b394f);
-  grid.position.y = 0.01;
-  scene.add(grid);
+  // Intentionally no visible editor grid/bounds: user wants only the 3D model.
 
   // Orbit controls (RMB pan + wheel zoom). Disable while dragging objects.
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -2145,7 +2115,7 @@ function runGame() {
   let portalReturnGroup = null;
   if (incomingPortal.portal && incomingPortal.ref) {
     portalReturnGroup = createPortalGroup({ label: "Return Portal", color: 0x60a5fa });
-    portalReturnGroup.position.set(-6, 0, -17);
+    portalReturnGroup.position.set(-10, 0, -14);
     scene.add(portalReturnGroup);
   }
 
